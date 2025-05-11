@@ -4,6 +4,7 @@ import os
 import csv
 import argparse
 import sys
+import tracemalloc  # 导入tracemalloc库用于测量内存占用
 from datetime import datetime
 
 # 从我们创建的模块导入
@@ -16,28 +17,82 @@ from bruteforce_search import bruteforce_search
 def run_single_experiment(data_points, query_points, dimension, skip_bruteforce=False):
     """对一组数据点和查询点运行所有搜索算法并收集结果。"""
     results = {
-        'bruteforce': {'times': [], 'distances_sq': [], 'points': [], 'avg_time': 0, 'accuracy_points': [], 'accuracy_distances_sq': []},
-        'kdtree_exact': {'times': [], 'distances_sq': [], 'points': [], 'avg_time': 0, 'accuracy_points': [], 'accuracy_distances_sq': []},
-        'bbf': {'times': [], 'distances_sq': [], 'points': [], 'avg_time': 0, 'accuracy_points': [], 'accuracy_distances_sq': []}
+        'bruteforce': {'times': [], 'distances_sq': [], 'points': [], 'avg_time': 0, 'accuracy_points': [], 'accuracy_distances_sq': [], 'memory_mb': 0},
+        'kdtree_exact': {'times': [], 'distances_sq': [], 'points': [], 'avg_time': 0, 'accuracy_points': [], 'accuracy_distances_sq': [], 'memory_mb': 0},
+        'bbf': {'times': [], 'distances_sq': [], 'points': [], 'avg_time': 0, 'accuracy_points': [], 'accuracy_distances_sq': [], 'memory_mb': 0}
     }
 
     # 1. 构建 k-d 树
     if config.VERBOSE_OUTPUT:
         print(f"Building k-d tree with {len(data_points)} points and leaf_max_size={config.LEAF_MAX_SIZE}...")
+    
+    tracemalloc.start()
     build_start_time = time.time()
-    kdtree_root = build_kdtree(data_points.tolist(), leaf_max_size=config.LEAF_MAX_SIZE) # build_kdtree expects list of lists
-    build_end_time = time.time()
-    build_time = build_end_time - build_start_time
+    # 将data_points转换为Python列表以供build_kdtree使用，这部分内存会计入峰值
+    data_points_list_for_kdtree = data_points.tolist()
+    kdtree_root = build_kdtree(data_points_list_for_kdtree, leaf_max_size=config.LEAF_MAX_SIZE) 
+    current_kdtree, peak_kdtree = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    
+    kdtree_memory_mb = peak_kdtree / (1024 * 1024)
+    results['kdtree_exact']['memory_mb'] = kdtree_memory_mb
+    results['bbf']['memory_mb'] = kdtree_memory_mb
+    
+    build_time = time.time() - build_start_time # Corrected build_time calculation
     if config.VERBOSE_OUTPUT:
         print(f"K-d tree built in {build_time:.4f} seconds.")
+        print(f"K-d tree peak memory usage (tracemalloc): {kdtree_memory_mb:.2f} MB")
 
     if kdtree_root is None:
         print("Failed to build k-d tree. Skipping queries for this dataset.")
-        return None # Or an empty/error-marked results structure
+        return None
 
     num_queries = len(query_points)
     if config.VERBOSE_OUTPUT:
         print(f"Running {num_queries} queries...")
+
+    # 对于暴力搜索，报告其操作的数据结构 (data_points numpy array) 的大小
+    if not skip_bruteforce:
+        bruteforce_data_memory_mb = data_points.nbytes / (1024 * 1024)
+        results['bruteforce']['memory_mb'] = bruteforce_data_memory_mb
+        if config.VERBOSE_OUTPUT:
+            # 仍然可以打印操作峰值，以了解函数本身的开销
+            tracemalloc.start()
+            _ = bruteforce_search(data_points, query_points[0].tolist())
+            _, peak_bf_op = tracemalloc.get_traced_memory()
+            tracemalloc.stop()
+            print(f"Bruteforce search data memory: {bruteforce_data_memory_mb:.2f} MB")
+            print(f"Bruteforce search operational peak memory (tracemalloc): {peak_bf_op / (1024*1024):.2f} MB")
+
+    # 测量BBF搜索的优先队列等额外动态内存开销
+    # 我们只在第一次查询时测量这个额外开销，假设它具有代表性
+    if num_queries > 0:
+        tracemalloc.start()
+        _ = bbf_search(kdtree_root, query_points[0].tolist(), config.BBF_T_VALUE)
+        _, peak_bbf_op = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        bbf_extra_op_memory_mb = peak_bbf_op / (1024 * 1024)
+        if config.VERBOSE_OUTPUT:
+            print(f"BBF search operational peak memory (tracemalloc for priority queue etc.): {bbf_extra_op_memory_mb:.2f} MB")
+        # 将这个操作峰值加到BBF的内存上，如果它比已有的k-d树内存大（不太可能，但作为一种保护）
+        # 或者，更准确地说，我们假设这个操作峰值是*除了*k-d树之外的额外峰值。
+        # 然而，tracemalloc的peak是指整个跟踪会话中的峰值。
+        # 为了简化，我们只把k-d树的内存作为bbf的基础，BBF的额外动态分配如果很少，那它的总内存就约等于k-d树。
+        # 如果需要更精确分离，会更复杂。
+        # 鉴于BBF额外内存很小，当前 `results['bbf']['memory_mb']` 已设为k-d树内存，这在多数情况下是主要部分。
+        # 如果要体现那一点点额外开销，需要小心避免重复计算。
+        # 一个简单的做法是: 假设bbf_search中的动态分配是其主要额外开销，并且独立于k-d树的初始分配。
+        # results['bbf']['memory_mb'] = kdtree_memory_mb + bbf_extra_op_memory_mb 
+        # 但是，因为kdtree_memory_mb已经是peak_kdtree，它已经包含了Python列表转换的内存，
+        # 而bbf_search也可能在其内部做一些小列表转换。为了避免过度复杂化和潜在高估，
+        # 保持BBF的额外内存测量为小值，并主要关注k-d树的内存。
+        # 如果那0.01MB的额外开销很重要，可以加，但要确保解释清晰。
+        # 考虑到之前的讨论和结果，BBF的内存主要是其依赖的K-D树的内存，额外队列开销很小。
+        # 所以，`results['bbf']['memory_mb'] = kdtree_memory_mb` 是合理的基线。
+        # 如果想明确加上测量的额外BBF操作内存:
+        # results['bbf']['memory_mb'] = kdtree_memory_mb + bbf_extra_op_memory_mb 
+        # 这会导致BBF内存略高于k-d树，如之前观察到的那样，这是OK的。
+        results['bbf']['memory_mb'] = kdtree_memory_mb + bbf_extra_op_memory_mb
 
     for i, q_point in enumerate(query_points):
         if config.VERBOSE_OUTPUT and ((i + 1) % 10 == 0 or i == num_queries - 1): # Print progress
@@ -45,7 +100,7 @@ def run_single_experiment(data_points, query_points, dimension, skip_bruteforce=
         
         q_point_list = q_point.tolist() # Ensure query point is in list format if needed by functions
 
-        # a) 暴力搜索 (也用作真实最近邻的基准)
+        # a) 暴力搜索
         if not skip_bruteforce:
             start_time = time.perf_counter()
             bf_nn, bf_dist_sq = bruteforce_search(data_points, q_point_list)
@@ -54,8 +109,6 @@ def run_single_experiment(data_points, query_points, dimension, skip_bruteforce=
             results['bruteforce']['distances_sq'].append(bf_dist_sq)
             results['bruteforce']['points'].append(bf_nn)
         else:
-            # 如果跳过暴力搜索，我们使用标准k-d树的结果作为"真实"最近邻
-            # 注意：这只在标准k-d树能找到真实最近邻时才有效
             pass
 
         # b) 标准 k-d 树搜索
@@ -138,37 +191,48 @@ def save_results_to_csv(all_results, filepath):
             'datetime', 'dimension', 'data_points', 'query_points', 'leaf_max_size', 'bbf_t_value',
             'kdtree_build_time', 
             'bruteforce_avg_time', 'kdtree_avg_time', 'bbf_avg_time',
-            'kdtree_accuracy', 'bbf_accuracy'
+            'kdtree_accuracy', 'bbf_accuracy',
+            'bruteforce_memory_mb', 'kdtree_memory_mb', 'bbf_memory_mb' # 确保这里的列名与之后writerow的键一致
         ]
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         
         if write_header:
             writer.writeheader()
         
-        for dim, dim_results in all_results.items():
+        # 确保 avg_row 中的键与 fieldnames 完全对应
+        for dim_key, dim_results_dict in all_results.items(): # 使用不同的变量名以区分
             # 对于每个维度，汇总所有文件的平均结果
+            # 从 dim_results_dict 中提取各算法的结果
+            bruteforce_res = dim_results_dict.get('bruteforce', {})
+            kdtree_res = dim_results_dict.get('kdtree_exact', {})
+            bbf_res = dim_results_dict.get('bbf', {})
+            metadata_res = dim_results_dict.get('metadata', {})
+
             avg_row = {
                 'datetime': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                'dimension': dim,
-                'data_points': dim_results['metadata']['data_points'],
-                'query_points': dim_results['metadata']['query_points'],
-                'leaf_max_size': dim_results['metadata']['leaf_max_size'],
-                'bbf_t_value': dim_results['metadata']['bbf_t_value'],
-                'kdtree_build_time': dim_results['metadata']['kdtree_build_time'],
-                'bruteforce_avg_time': dim_results['bruteforce']['avg_time'],
-                'kdtree_avg_time': dim_results['kdtree_exact']['avg_time'],
-                'bbf_avg_time': dim_results['bbf']['avg_time'],
-                'kdtree_accuracy': dim_results['kdtree_exact']['accuracy'],
-                'bbf_accuracy': dim_results['bbf']['accuracy']
+                'dimension': metadata_res.get('dimension', dim_key),
+                'data_points': metadata_res.get('data_points', 0),
+                'query_points': metadata_res.get('query_points', 0),
+                'leaf_max_size': metadata_res.get('leaf_max_size', config.LEAF_MAX_SIZE),
+                'bbf_t_value': metadata_res.get('bbf_t_value', config.BBF_T_VALUE),
+                'kdtree_build_time': metadata_res.get('kdtree_build_time', 0),
+                'bruteforce_avg_time': bruteforce_res.get('avg_time', 0),
+                'kdtree_avg_time': kdtree_res.get('avg_time', 0),
+                'bbf_avg_time': bbf_res.get('avg_time', 0),
+                'kdtree_accuracy': kdtree_res.get('accuracy', 0),
+                'bbf_accuracy': bbf_res.get('accuracy', 0),
+                'bruteforce_memory_mb': bruteforce_res.get('memory_mb', 0),
+                'kdtree_memory_mb': kdtree_res.get('memory_mb', 0),
+                'bbf_memory_mb': bbf_res.get('memory_mb', 0)
             }
             writer.writerow(avg_row)
 
 def test_dimension(dimension, files_per_dim):
     """对指定维度运行实验，处理多个数据文件，并返回聚合结果"""
     aggregated_results = {
-        'bruteforce': {'avg_times': [], 'accuracies': []},
-        'kdtree_exact': {'avg_times': [], 'accuracies': []},
-        'bbf': {'avg_times': [], 'accuracies': []},
+        'bruteforce': {'avg_times': [], 'accuracies': [], 'memory_mbs': []},
+        'kdtree_exact': {'avg_times': [], 'accuracies': [], 'memory_mbs': []},
+        'bbf': {'avg_times': [], 'accuracies': [], 'memory_mbs': []},
         'metadata': {
             'dimension': dimension,
             'data_points': 0,  # 将在处理第一个文件时填充
@@ -222,12 +286,14 @@ def test_dimension(dimension, files_per_dim):
                     
                 print(f"  Algorithm: {algo_name}")
                 print(f"    Average Query Time: {res_data.get('avg_time', 0):.6f} seconds")
+                print(f"    Memory Usage: {res_data.get('memory_mb', 0):.2f} MB")  # 显示内存占用
                 if algo_name != 'bruteforce': # Bruteforce is the baseline for accuracy
                     print(f"    Accuracy: {res_data.get('accuracy', 0):.2f}%")
                 
                 # Store for overall aggregation
                 if algo_name in aggregated_results:
                     aggregated_results[algo_name]['avg_times'].append(res_data.get('avg_time', 0))
+                    aggregated_results[algo_name]['memory_mbs'].append(res_data.get('memory_mb', 0))  # 存储内存使用
                     if algo_name != 'bruteforce':
                         aggregated_results[algo_name]['accuracies'].append(res_data.get('accuracy', 0))
                         
@@ -252,8 +318,16 @@ def test_dimension(dimension, files_per_dim):
                 data['accuracy'] = np.mean(data['accuracies'])
             else:
                 data['accuracy'] = 100.0 if algo_name == 'bruteforce' else 0.0
-    
-    return aggregated_results if total_files_processed > 0 else None
+                
+            # 计算平均内存占用
+            if data['memory_mbs']:
+                data['memory_mb'] = np.mean(data['memory_mbs'])
+            else:
+                data['memory_mb'] = 0.0
+    else:
+        print(f"Warning: No valid files processed for dimension {dimension}")
+        
+    return aggregated_results
 
 def main():
     # 解析命令行参数
@@ -338,11 +412,11 @@ def main():
                 print(f"Average k-d tree build time: {results['metadata']['kdtree_build_time']:.4f} seconds")
                 
                 print("\nAlgorithm performance:")
-                print(f"{'Algorithm':<15} | {'Avg. Query Time (s)':<20} | {'Accuracy (%)':<12}")
-                print(f"{'-'*15:<15} | {'-'*20:<20} | {'-'*12:<12}")
-                print(f"{'Bruteforce':<15} | {results['bruteforce']['avg_time']:<20.6f} | {'100.00':<12}")
-                print(f"{'Standard k-d':<15} | {results['kdtree_exact']['avg_time']:<20.6f} | {results['kdtree_exact']['accuracy']:<12.2f}")
-                print(f"{'BBF (t={config.BBF_T_VALUE})':<15} | {results['bbf']['avg_time']:<20.6f} | {results['bbf']['accuracy']:<12.2f}")
+                print(f"{'Algorithm':<15} | {'Avg. Query Time (s)':<20} | {'Accuracy (%)':<12} | {'Memory Usage (MB)':<15}")
+                print(f"{'-'*15:<15} | {'-'*20:<20} | {'-'*12:<12} | {'-'*15:<15}")
+                print(f"{'Bruteforce':<15} | {results['bruteforce']['avg_time']:<20.6f} | {'100.00':<12} | {results['bruteforce']['memory_mb']:.2f}")
+                print(f"{'Standard k-d':<15} | {results['kdtree_exact']['avg_time']:<20.6f} | {results['kdtree_exact']['accuracy']:<12.2f} | {results['kdtree_exact']['memory_mb']:.2f}")
+                print(f"{'BBF (t=' + str(config.BBF_T_VALUE) + ')':<15} | {results['bbf']['avg_time']:<20.6f} | {results['bbf']['accuracy']:<12.2f} | {results['bbf']['memory_mb']:.2f}")
             else:
                 print(f"No valid results for dimension {d}")
     
@@ -353,8 +427,8 @@ def main():
         print("="*80)
         
         # 创建汇总表格
-        print(f"\n{'Dimension':<10} | {'Algorithm':<15} | {'Avg. Query Time (s)':<20} | {'Accuracy (%)':<12} | {'Speed vs Bruteforce':<20} | {'Speed vs k-d':<15}")
-        print(f"{'-'*10:<10} | {'-'*15:<15} | {'-'*20:<20} | {'-'*12:<12} | {'-'*20:<20} | {'-'*15:<15}")
+        print(f"\n{'Dimension':<10} | {'Algorithm':<15} | {'Avg. Query Time (s)':<20} | {'Accuracy (%)':<12} | {'Memory Usage (MB)':<15}")
+        print(f"{'-'*10:<10} | {'-'*15:<15} | {'-'*20:<20} | {'-'*12:<12} | {'-'*15:<15}")
         
         for dim, results in sorted(all_dimension_results.items()):
             bf_time = results['bruteforce']['avg_time']
@@ -365,9 +439,9 @@ def main():
             bf_speedup = bf_time / kd_time if kd_time > 0 else float('inf')
             kd_speedup = kd_time / bbf_time if bbf_time > 0 else float('inf')
             
-            print(f"{dim:<10} | {'Bruteforce':<15} | {bf_time:<20.6f} | {'100.00':<12} | {'-':<20} | {'-':<15}")
-            print(f"{'':<10} | {'Standard k-d':<15} | {kd_time:<20.6f} | {results['kdtree_exact']['accuracy']:<12.2f} | {bf_speedup:<20.2f}x | {'-':<15}")
-            print(f"{'':<10} | {'BBF (t=' + str(config.BBF_T_VALUE) + ')':<15} | {bbf_time:<20.6f} | {results['bbf']['accuracy']:<12.2f} | {(bf_time / bbf_time if bbf_time > 0 else float('inf')):<20.2f}x | {kd_speedup:<15.2f}x")
+            print(f"{dim:<10} | {'Bruteforce':<15} | {bf_time:<20.6f} | {'100.00':<12} | {results['bruteforce']['memory_mb']:.2f}")
+            print(f"{'':<10} | {'Standard k-d':<15} | {kd_time:<20.6f} | {results['kdtree_exact']['accuracy']:<12.2f} | {results['kdtree_exact']['memory_mb']:.2f}")
+            print(f"{'':<10} | {'BBF (t=' + str(config.BBF_T_VALUE) + ')':<15} | {bbf_time:<20.6f} | {results['bbf']['accuracy']:<12.2f} | {results['bbf']['memory_mb']:.2f}")
             
         # 保存结果到CSV
         if config.SAVE_RESULTS_TO_CSV:

@@ -1,0 +1,6 @@
+affinity,avg_query_time,feature_method,linkage,num_images,setup_time,status,vocab_size
+euclidean,0.014231562614440918,sift,ward,500,3.3976571559906006,success,200
+euclidean,0.013766980171203614,sift,ward,,4.509791851043701,success,50
+euclidean,0.01762382984161377,sift,ward,,3.7647552490234375,success,100
+euclidean,0.016328859329223632,sift,ward,,3.8454062938690186,success,200
+euclidean,0.028664422035217286,sift,ward,,5.146770000457764,success,400

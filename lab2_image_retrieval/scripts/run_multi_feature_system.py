@@ -6,53 +6,53 @@ import argparse
 import random
 from tqdm import tqdm
 import matplotlib
-matplotlib.use('Agg')  # 使用非交互式后端，避免Qt错误
+matplotlib.use('Agg')  # Use non-interactive backend to avoid Qt errors
 import matplotlib.pyplot as plt
 
-# 添加当前目录到路径
+# Add current directory to path
 sys.path.append('.')
 
 from systems.multi_feature_retrieval_system import MultiFeatureRetrievalSystem
 
 def main():
-    """测试多特征融合的图像检索系统，保证查询图像自身排在第一位"""
-    # 命令行参数
-    parser = argparse.ArgumentParser(description="测试多特征融合的图像检索系统")
-    parser.add_argument("--data_dir", type=str, default="photo", help="图像目录")
-    parser.add_argument("--vocab_size", type=int, default=400, help="SIFT词典大小")
-    parser.add_argument("--color_bins", type=int, default=16, help="颜色直方图每通道柱数")
+    """Test the multi-feature fusion image retrieval system, ensuring query image ranks first"""
+    # Command line arguments
+    parser = argparse.ArgumentParser(description="Test the multi-feature fusion image retrieval system")
+    parser.add_argument("--data_dir", type=str, default="photo", help="Image directory")
+    parser.add_argument("--vocab_size", type=int, default=400, help="SIFT dictionary size")
+    parser.add_argument("--color_bins", type=int, default=16, help="Number of bins per channel for color histogram")
     parser.add_argument("--color_space", type=str, default="hsv", choices=["rgb", "hsv"], 
-                        help="颜色空间")
-    parser.add_argument("--max_features", type=int, default=1000, help="每张图像最多提取的特征点数量")
-    parser.add_argument("--force_recompute", action="store_true", help="强制重新计算特征和词典")
-    parser.add_argument("--num_queries", type=int, default=5, help="随机查询的样本数量")
+                        help="Color space")
+    parser.add_argument("--max_features", type=int, default=1000, help="Maximum features per image")
+    parser.add_argument("--force_recompute", action="store_true", help="Force recomputation of features and dictionary")
+    parser.add_argument("--num_queries", type=int, default=5, help="Number of random query samples")
     parser.add_argument("--sim_method", type=str, default="rerank", 
                       choices=["cosine", "euclidean", "combined", "rerank"],
-                      help="相似度计算方法")
-    parser.add_argument("--query_image", type=str, help="指定查询图像的路径")
-    parser.add_argument("--sift_weight", type=float, default=0.7, help="SIFT特征权重")
-    parser.add_argument("--color_weight", type=float, default=0.3, help="颜色特征权重")
+                      help="Similarity calculation method")
+    parser.add_argument("--query_image", type=str, help="Path to specific query image")
+    parser.add_argument("--sift_weight", type=float, default=0.7, help="SIFT feature weight")
+    parser.add_argument("--color_weight", type=float, default=0.3, help="Color feature weight")
     args = parser.parse_args()
     
-    # 创建结果目录
+    # Create results directory
     os.makedirs("multi_feature_results", exist_ok=True)
     
-    print("=== 测试多特征融合图像检索系统 (确保自匹配排在第一位) ===")
-    print(f"SIFT特征权重: {args.sift_weight}, 颜色特征权重: {args.color_weight}")
+    print("=== Testing multi-feature fusion image retrieval system (ensuring self-match ranks first) ===")
+    print(f"SIFT feature weight: {args.sift_weight}, Color feature weight: {args.color_weight}")
     
-    # 创建并设置系统
-    print(f"创建系统 (SIFT词典大小: {args.vocab_size}, 颜色柱数: {args.color_bins}, 颜色空间: {args.color_space})")
+    # Create and setup system
+    print(f"Creating system (SIFT dictionary size: {args.vocab_size}, Color bins: {args.color_bins}, Color space: {args.color_space})")
     system = MultiFeatureRetrievalSystem(
         vocab_size=args.vocab_size,
         color_bins=args.color_bins,
         color_space=args.color_space
     )
     
-    # 设置特征权重
+    # Set feature weights
     system.sift_weight = args.sift_weight
     system.color_weight = args.color_weight
     
-    # 设置系统
+    # Setup system
     setup_start = time.time()
     success = system.setup(
         data_dir=args.data_dir,
@@ -62,22 +62,22 @@ def main():
     setup_time = time.time() - setup_start
     
     if not success:
-        print("系统设置失败")
+        print("System setup failed")
         return
     
-    print(f"系统设置完成，用时 {setup_time:.2f} 秒")
+    print(f"System setup completed in {setup_time:.2f} seconds")
     
-    # 如果指定了特定的查询图像
+    # If a specific query image is provided
     if args.query_image:
         if os.path.exists(args.query_image):
-            print(f"\n执行指定查询: {args.query_image}")
+            print(f"\nExecuting specific query: {args.query_image}")
             results = system.query_image_path(args.query_image, sim_method=args.sim_method)
             
-            # 显示结果
+            # Display results
             save_path = f"multi_feature_results/specific_query_{os.path.basename(args.query_image)}.png"
             system.display_query_results(args.query_image, results, save_path=save_path)
             
-            # 分析查询图像的排名
+            # Analyze query image ranking
             query_rank = -1
             for i, (path, _) in enumerate(results):
                 if path == args.query_image:
@@ -85,40 +85,40 @@ def main():
                     break
             
             if query_rank == 0:
-                print(f"✓ 成功：查询图像 {os.path.basename(args.query_image)} 排在第一位")
+                print(f"✓ Success: Query image {os.path.basename(args.query_image)} ranked in first position")
             elif query_rank > 0:
-                print(f"✗ 失败：查询图像 {os.path.basename(args.query_image)} 排在第 {query_rank+1} 位")
+                print(f"✗ Failure: Query image {os.path.basename(args.query_image)} ranked at position {query_rank+1}")
             else:
-                print(f"✗ 失败：查询图像 {os.path.basename(args.query_image)} 不在结果中")
+                print(f"✗ Failure: Query image {os.path.basename(args.query_image)} not found in results")
             
             return
     
-    # 选择随机查询图像
+    # Select random query images
     image_files = [os.path.join(args.data_dir, f) for f in os.listdir(args.data_dir) 
                   if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
     
     if not image_files:
-        print(f"错误: 在 {args.data_dir} 中没有找到图像")
+        print(f"Error: No images found in {args.data_dir}")
         return
     
-    # 随机选择查询图像
-    random.seed(42)  # 确保可重现性
+    # Randomly select query images
+    random.seed(42)  # Ensure reproducibility
     query_images = random.sample(image_files, min(args.num_queries, len(image_files)))
     
-    # 执行查询
+    # Execute queries
     success_count = 0
     for i, query_path in enumerate(query_images):
-        print(f"\n===== 随机查询 {i+1}: {os.path.basename(query_path)} =====")
+        print(f"\n===== Random query {i+1}: {os.path.basename(query_path)} =====")
         
         try:
-            # 执行查询
+            # Execute query
             results = system.query_image_path(query_path, sim_method=args.sim_method)
             
-            # 显示结果
+            # Display results
             save_path = f"multi_feature_results/random_query_{i+1}_{os.path.basename(query_path)}.png"
             system.display_query_results(query_path, results, save_path=save_path)
             
-            # 分析查询图像的排名
+            # Analyze query image ranking
             query_rank = -1
             for j, (path, _) in enumerate(results):
                 if path == query_path:
@@ -126,32 +126,32 @@ def main():
                     break
             
             if query_rank == 0:
-                print(f"✓ 成功：查询图像排在第一位")
+                print(f"✓ Success: Query image ranked in first position")
                 success_count += 1
             elif query_rank > 0:
-                print(f"✗ 失败：查询图像排在第 {query_rank+1} 位")
+                print(f"✗ Failure: Query image ranked at position {query_rank+1}")
             else:
-                print(f"✗ 失败：查询图像不在结果中")
+                print(f"✗ Failure: Query image not found in results")
                 
         except Exception as e:
-            print(f"查询出错: {e}")
+            print(f"Query error: {e}")
     
-    # 打印总体结果
+    # Print overall results
     if args.num_queries > 0:
         success_rate = success_count / len(query_images) * 100
-        print(f"\n总体结果: {success_count}/{len(query_images)} 个查询图像排在第一位 ({success_rate:.1f}%)")
+        print(f"\nOverall results: {success_count}/{len(query_images)} query images ranked first ({success_rate:.1f}%)")
         
         if success_rate == 100:
-            print("✓ 系统优化成功，所有查询图像都排在第一位！")
+            print("✓ System optimization successful, all query images ranked first!")
         else:
-            print("! 系统仍需进一步优化，部分查询图像没有排在第一位。")
+            print("! System still needs optimization, some query images not ranked first.")
             
-    # 与之前的改进系统比较
-    print("\n=== 多特征融合系统的优势 ===")
-    print("1. 融合了SIFT特征和颜色特征，能更全面地表示图像内容")
-    print("2. 颜色特征提供了全局信息，弥补了SIFT特征主要捕获局部结构的不足")
-    print("3. 通过加权融合机制，可以灵活调整不同特征的重要性")
-    print(f"4. 使用{args.color_space}颜色空间的{args.color_bins}柱直方图，捕获更丰富的颜色分布信息")
+    # Compare with previous improved system
+    print("\n=== Multi-feature fusion system advantages ===")
+    print("1. Combines SIFT features and color features for a more comprehensive image representation")
+    print("2. Color features provide global information, complementing the local structure captured by SIFT")
+    print("3. Flexible weighting mechanism allows adjustment of the importance of different features")
+    print(f"4. Uses {args.color_bins}-bin histogram in {args.color_space} color space to capture richer color distribution")
 
 if __name__ == "__main__":
     main() 

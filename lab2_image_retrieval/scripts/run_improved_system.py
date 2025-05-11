@@ -6,39 +6,39 @@ import argparse
 import random
 from tqdm import tqdm
 import matplotlib
-matplotlib.use('Agg')  # 使用非交互式后端，避免Qt错误
+matplotlib.use('Agg')  # Use non-interactive backend to avoid Qt errors
 import matplotlib.pyplot as plt
 
-# 添加当前目录到路径
+# Add current directory to path
 sys.path.append('.')
 
 from systems.improved_retrieval_system import ImprovedRetrievalSystem
 
 def main():
-    """测试改进的图像检索系统，保证查询图像自身排在第一位"""
-    # 命令行参数
-    parser = argparse.ArgumentParser(description="测试改进的图像检索系统")
-    parser.add_argument("--data_dir", type=str, default="photo", help="图像目录")
-    parser.add_argument("--vocab_size", type=int, default=400, help="词典大小")
-    parser.add_argument("--max_features", type=int, default=1000, help="每张图像最多提取的特征点数量")
-    parser.add_argument("--force_recompute", action="store_true", help="强制重新计算特征和词典")
-    parser.add_argument("--num_queries", type=int, default=5, help="随机查询的样本数量")
+    """Test the improved image retrieval system, ensuring query image ranks first"""
+    # Command line arguments
+    parser = argparse.ArgumentParser(description="Test the improved image retrieval system")
+    parser.add_argument("--data_dir", type=str, default="photo", help="Image directory")
+    parser.add_argument("--vocab_size", type=int, default=400, help="Dictionary size")
+    parser.add_argument("--max_features", type=int, default=1000, help="Maximum features per image")
+    parser.add_argument("--force_recompute", action="store_true", help="Force recomputation of features and dictionary")
+    parser.add_argument("--num_queries", type=int, default=5, help="Number of random query samples")
     parser.add_argument("--sim_method", type=str, default="rerank", 
                       choices=["cosine", "euclidean", "combined", "rerank"],
-                      help="相似度计算方法")
-    parser.add_argument("--query_image", type=str, help="指定查询图像的路径")
+                      help="Similarity calculation method")
+    parser.add_argument("--query_image", type=str, help="Path to specific query image")
     args = parser.parse_args()
     
-    # 创建结果目录
+    # Create results directory
     os.makedirs("improved_results", exist_ok=True)
     
-    print("=== 测试改进的图像检索系统 (确保自匹配排在第一位) ===")
+    print("=== Testing improved image retrieval system (ensuring self-match ranks first) ===")
     
-    # 创建并设置系统
-    print(f"创建系统 (词典大小: {args.vocab_size}, 相似度方法: {args.sim_method})")
+    # Create and setup system
+    print(f"Creating system (dictionary size: {args.vocab_size}, similarity method: {args.sim_method})")
     system = ImprovedRetrievalSystem(vocab_size=args.vocab_size)
     
-    # 设置系统
+    # Setup system
     setup_start = time.time()
     success = system.setup(
         data_dir=args.data_dir,
@@ -48,22 +48,22 @@ def main():
     setup_time = time.time() - setup_start
     
     if not success:
-        print("系统设置失败")
+        print("System setup failed")
         return
     
-    print(f"系统设置完成，用时 {setup_time:.2f} 秒")
+    print(f"System setup completed in {setup_time:.2f} seconds")
     
-    # 如果指定了特定的查询图像
+    # If a specific query image is provided
     if args.query_image:
         if os.path.exists(args.query_image):
-            print(f"\n执行指定查询: {args.query_image}")
+            print(f"\nExecuting specific query: {args.query_image}")
             results = system.query_image_path(args.query_image, sim_method=args.sim_method)
             
-            # 显示结果
+            # Display results
             save_path = f"improved_results/specific_query_{os.path.basename(args.query_image)}.png"
             system.display_query_results(args.query_image, results, save_path=save_path)
             
-            # 分析查询图像的排名
+            # Analyze query image ranking
             query_rank = -1
             for i, (path, _) in enumerate(results):
                 if path == args.query_image:
@@ -71,40 +71,40 @@ def main():
                     break
             
             if query_rank == 0:
-                print(f"✓ 成功：查询图像 {os.path.basename(args.query_image)} 排在第一位")
+                print(f"✓ Success: Query image {os.path.basename(args.query_image)} ranked in first position")
             elif query_rank > 0:
-                print(f"✗ 失败：查询图像 {os.path.basename(args.query_image)} 排在第 {query_rank+1} 位")
+                print(f"✗ Failure: Query image {os.path.basename(args.query_image)} ranked at position {query_rank+1}")
             else:
-                print(f"✗ 失败：查询图像 {os.path.basename(args.query_image)} 不在结果中")
+                print(f"✗ Failure: Query image {os.path.basename(args.query_image)} not found in results")
             
             return
     
-    # 选择随机查询图像
+    # Select random query images
     image_files = [os.path.join(args.data_dir, f) for f in os.listdir(args.data_dir) 
                   if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
     
     if not image_files:
-        print(f"错误: 在 {args.data_dir} 中没有找到图像")
+        print(f"Error: No images found in {args.data_dir}")
         return
     
-    # 随机选择查询图像
-    random.seed(42)  # 确保可重现性
+    # Randomly select query images
+    random.seed(42)  # Ensure reproducibility
     query_images = random.sample(image_files, min(args.num_queries, len(image_files)))
     
-    # 执行查询
+    # Execute queries
     success_count = 0
     for i, query_path in enumerate(query_images):
-        print(f"\n===== 随机查询 {i+1}: {os.path.basename(query_path)} =====")
+        print(f"\n===== Random query {i+1}: {os.path.basename(query_path)} =====")
         
         try:
-            # 执行查询
+            # Execute query
             results = system.query_image_path(query_path, sim_method=args.sim_method)
             
-            # 显示结果
+            # Display results
             save_path = f"improved_results/random_query_{i+1}_{os.path.basename(query_path)}.png"
             system.display_query_results(query_path, results, save_path=save_path)
             
-            # 分析查询图像的排名
+            # Analyze query image ranking
             query_rank = -1
             for j, (path, _) in enumerate(results):
                 if path == query_path:
@@ -112,25 +112,25 @@ def main():
                     break
             
             if query_rank == 0:
-                print(f"✓ 成功：查询图像排在第一位")
+                print(f"✓ Success: Query image ranked in first position")
                 success_count += 1
             elif query_rank > 0:
-                print(f"✗ 失败：查询图像排在第 {query_rank+1} 位")
+                print(f"✗ Failure: Query image ranked at position {query_rank+1}")
             else:
-                print(f"✗ 失败：查询图像不在结果中")
+                print(f"✗ Failure: Query image not found in results")
                 
         except Exception as e:
-            print(f"查询出错: {e}")
+            print(f"Query error: {e}")
     
-    # 打印总体结果
+    # Print overall results
     if args.num_queries > 0:
         success_rate = success_count / len(query_images) * 100
-        print(f"\n总体结果: {success_count}/{len(query_images)} 个查询图像排在第一位 ({success_rate:.1f}%)")
+        print(f"\nOverall results: {success_count}/{len(query_images)} query images ranked first ({success_rate:.1f}%)")
         
         if success_rate == 100:
-            print("✓ 系统优化成功，所有查询图像都排在第一位！")
+            print("✓ System optimization successful, all query images ranked first!")
         else:
-            print("! 系统仍需进一步优化，部分查询图像没有排在第一位。")
+            print("! System still needs optimization, some query images not ranked first.")
 
 if __name__ == "__main__":
     main() 

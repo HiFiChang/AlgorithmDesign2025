@@ -447,51 +447,51 @@ class MultiFeatureRetrievalSystem:
     
     def display_query_results(self, query_path, results, max_display=5, save_path=None):
         """
-        可视化查询结果
+        Visualize query results
         
-        参数:
-            query_path: 查询图像路径
-            results: 查询结果列表 [(image_path, similarity_score), ...]
-            max_display: 最多显示的结果数量
-            save_path: 保存结果图像的路径
+        Parameters:
+            query_path: Path to the query image
+            results: Query results list [(image_path, similarity_score), ...]
+            max_display: Maximum number of results to display
+            save_path: Path to save the result image
         """
         if len(results) == 0:
-            print("没有查询结果可显示")
+            print("No query results to display")
             return
         
-        # 读取查询图像
+        # Read query image
         query_img = cv2.imread(query_path)
         query_img = cv2.cvtColor(query_img, cv2.COLOR_BGR2RGB)
         
-        # 限制显示的结果数量
+        # Limit displayed results
         display_results = results[:min(max_display, len(results))]
         
-        # 创建子图
+        # Create subplots
         n_results = len(display_results)
         fig, axes = plt.subplots(1, n_results + 1, figsize=(3 * (n_results + 1), 4))
         
-        # 显示查询图像
+        # Display query image
         axes[0].imshow(query_img)
-        axes[0].set_title("查询图像")
+        axes[0].set_title("Query Image")
         axes[0].axis('off')
         
-        # 突出显示查询图像自身
+        # Highlight query image itself
         query_basename = os.path.basename(query_path)
         
-        # 显示结果图像
+        # Display result images
         for i, (img_path, score) in enumerate(display_results):
             result_img = cv2.imread(img_path)
             result_img = cv2.cvtColor(result_img, cv2.COLOR_BGR2RGB)
             
-            # 显示图像
+            # Display image
             axes[i+1].imshow(result_img)
             
-            # 为标题添加边框，如果是查询图像自身
+            # Add border to title if it's the query image itself
             is_self = (img_path == query_path)
-            title_text = f"匹配 {i+1}"
+            title_text = f"Match {i+1}"
             if is_self:
-                title_text += " (查询图像)"
-                # 添加红色边框
+                title_text += " (Query Image)"
+                # Add red border
                 axes[i+1].spines['top'].set_color('red')
                 axes[i+1].spines['bottom'].set_color('red')
                 axes[i+1].spines['left'].set_color('red')
@@ -501,23 +501,23 @@ class MultiFeatureRetrievalSystem:
                 axes[i+1].spines['left'].set_linewidth(3)
                 axes[i+1].spines['right'].set_linewidth(3)
             
-            axes[i+1].set_title(f"{title_text}\n相似度: {score:.4f}")
+            axes[i+1].set_title(f"{title_text}\nSimilarity: {score:.4f}")
             axes[i+1].axis('off')
         
-        plt.suptitle(f"查询: {os.path.basename(query_path)}")
+        plt.suptitle(f"Query: {os.path.basename(query_path)}")
         plt.tight_layout()
         
         if save_path:
-            # 创建目录（如果不存在）
+            # Create directory if it doesn't exist
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
             plt.savefig(save_path)
-            print(f"结果已保存至 {save_path}")
+            print(f"Results saved to {save_path}")
         else:
-            # 保存到默认位置
+            # Save to default location
             default_path = f"multi_feature_results/query_{os.path.basename(query_path)}.png"
             os.makedirs(os.path.dirname(default_path), exist_ok=True)
             plt.savefig(default_path)
-            print(f"结果已保存至 {default_path}")
+            print(f"Results saved to {default_path}")
         
         plt.close()
 

@@ -33,3 +33,28 @@ CSV_RESULT_PATH = "bbf_experiment_results.csv"  # CSV文件路径
 
 # 其他
 # DATA_DIMENSION = 8 # 从 generateData.cpp 可知是8维，也可以从数据文件动态读取 
+
+# Data paths
+DATA_DIR = "photo"  # 数据集目录
+FEATURES_DIR = "features"  # 特征保存目录
+RESULTS_DIR = "results"  # 结果保存目录
+
+# Feature extraction parameters
+MAX_FEATURES = 1000  # 每张图像最多提取的特征点数量
+FEATURE_METHOD = "sift"  # 特征提取方法，支持 'sift'
+
+# Visual dictionary parameters
+VOCAB_SIZE = 800  # 视觉词典大小 (增大以提高区分度)
+LINKAGE = "ward"  # 层次聚类连接方式，支持 'ward', 'complete', 'average', 'single'
+AFFINITY = "euclidean"  # 距离度量，支持 'euclidean', 'manhattan', 'cosine'
+
+# Query parameters
+TOP_K = 10  # 返回的最相似图像数量
+SIMILARITY_METHOD = "combined"  # 相似度计算方法，支持 'cosine', 'euclidean', 'combined'
+
+# Experiment parameters
+FORCE_RECOMPUTE = False  # 是否强制重新计算特征和词典
+QUERY_SAMPLES = 5  # 随机查询的样本数量
+
+# Visualization parameters
+MAX_DISPLAY = 5  # 显示的最大结果数量 
